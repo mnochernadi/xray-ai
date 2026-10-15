@@ -110,6 +110,9 @@ type AllSetting struct {
 	SubKeyFile                  string `json:"subKeyFile" form:"subKeyFile"`
 	ExternalSubUserAgent        string `json:"externalSubUserAgent" form:"externalSubUserAgent"`
 	SubUpdates                  int    `json:"subUpdates" form:"subUpdates" validate:"gte=0,lte=525600"`
+	SubInboundSyncEnable        bool   `json:"subInboundSyncEnable" form:"subInboundSyncEnable"`
+	SubInboundSyncUrl           string `json:"subInboundSyncUrl" form:"subInboundSyncUrl"`
+	SubInboundSyncDomain        string `json:"subInboundSyncDomain" form:"subInboundSyncDomain"`
 	ExternalTrafficInformEnable bool   `json:"externalTrafficInformEnable" form:"externalTrafficInformEnable"`
 	ExternalTrafficInformURI    string `json:"externalTrafficInformURI" form:"externalTrafficInformURI"`
 	RestartXrayOnClientDisable  bool   `json:"restartXrayOnClientDisable" form:"restartXrayOnClientDisable"`

@@ -342,6 +342,15 @@
           "subHideSettings": {
             "type": "boolean"
           },
+          "subInboundSyncDomain": {
+            "type": "string"
+          },
+          "subInboundSyncEnable": {
+            "type": "boolean"
+          },
+          "subInboundSyncUrl": {
+            "type": "string"
+          },
           "subIncyAnnounceUrl": {
             "type": "string"
           },
@@ -695,6 +704,9 @@
           "subHappTunMode",
           "subHappTunType",
           "subHideSettings",
+          "subInboundSyncDomain",
+          "subInboundSyncEnable",
+          "subInboundSyncUrl",
           "subIncyAnnounceUrl",
           "subIncyAppAutoDetect",
           "subIncyBannerBgColor",
@@ -1118,6 +1130,15 @@
           "subHideSettings": {
             "type": "boolean"
           },
+          "subInboundSyncDomain": {
+            "type": "string"
+          },
+          "subInboundSyncEnable": {
+            "type": "boolean"
+          },
+          "subInboundSyncUrl": {
+            "type": "string"
+          },
           "subIncyAnnounceUrl": {
             "type": "string"
           },
@@ -1479,6 +1500,9 @@
           "subHappTunMode",
           "subHappTunType",
           "subHideSettings",
+          "subInboundSyncDomain",
+          "subInboundSyncEnable",
+          "subInboundSyncUrl",
           "subIncyAnnounceUrl",
           "subIncyAppAutoDetect",
           "subIncyBannerBgColor",

@@ -8,6 +8,7 @@ import {
   ApiOutlined,
   ApartmentOutlined,
   CloseOutlined,
+  CloudDownloadOutlined,
   CloudServerOutlined,
   ClusterOutlined,
   CodeOutlined,
@@ -271,6 +272,11 @@ export default function AppSidebar() {
         key: '/settings#subscription',
         icon: <CloudServerOutlined />,
         label: t('pages.settings.subSettings'),
+      },
+      {
+        key: '/settings#inbound-sync',
+        icon: <CloudDownloadOutlined />,
+        label: t('pages.settings.inboundSync.menu'),
       },
     ];
     if (showSubFormats) {

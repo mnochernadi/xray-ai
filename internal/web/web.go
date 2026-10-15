@@ -305,6 +305,7 @@ const (
 	cadenceNodeHeartbeat = "@every 5s"
 	cadenceNodeTraffic   = "@every 5s"
 	cadenceOutboundSub   = "@every 5m"
+	cadenceInboundSub    = "@every 30m"
 	cadenceReapOrphans   = "@every 5m"
 	cadenceRemoteRouting = "@every 5m"
 	cadenceXrayLogPrune  = "@every 10m"
@@ -360,6 +361,10 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 
 	// Outbound subscription auto-refresh (respects per-sub updateInterval)
 	_, _ = s.cron.AddJob(cadenceOutboundSub, job.NewOutboundSubscriptionJob())
+
+	// Mirror a remote share-link subscription into local inbounds every 30m.
+	// The job no-ops unless the operator enabled it in the settings.
+	_, _ = s.cron.AddJob(cadenceInboundSub, job.NewInboundSubscriptionJob())
 
 	_, _ = s.cron.AddJob(cadenceReapOrphans, job.NewReapSyncOrphansJob())
 

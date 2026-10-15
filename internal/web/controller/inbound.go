@@ -19,10 +19,11 @@ import (
 
 // InboundController handles HTTP requests related to Xray inbounds management.
 type InboundController struct {
-	inboundService  service.InboundService
-	clientService   service.ClientService
-	xrayService     service.XrayService
-	fallbackService service.FallbackService
+	inboundService    service.InboundService
+	clientService     service.ClientService
+	xrayService       service.XrayService
+	fallbackService   service.FallbackService
+	inboundSubService service.InboundSubscriptionService
 }
 
 // NewInboundController creates a new InboundController and sets up its routes.
@@ -92,6 +93,7 @@ func (a *InboundController) initRouter(g *gin.RouterGroup) {
 	g.POST("/import", a.importInbound)
 	g.POST("/:id/fallbacks", a.setFallbacks)
 	g.POST("/pushClientTraffics", a.pushClientTraffics)
+	g.POST("/syncSubscription", a.syncSubscription)
 }
 
 // getInbounds retrieves the list of inbounds for the logged-in user.
@@ -402,6 +404,20 @@ func (a *InboundController) pushClientTraffics(c *gin.Context) {
 		return
 	}
 	jsonMsg(c, "success", nil)
+}
+
+// syncSubscription mirrors the configured share-link subscription into local
+// inbounds now, instead of waiting for the 30-minute job.
+func (a *InboundController) syncSubscription(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	result, err := a.inboundSubService.Refresh(c.Request.Context())
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	jsonMsgObj(c, "success", result, nil)
+	a.broadcastInboundsUpdate(user.Id)
+	notifyClientsChanged()
 }
 
 // importInbound imports an inbound configuration from provided data.

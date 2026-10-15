@@ -106,6 +106,9 @@ export interface AllSetting {
   subHappTunMode: string;
   subHappTunType: string;
   subHideSettings: boolean;
+  subInboundSyncDomain: string;
+  subInboundSyncEnable: boolean;
+  subInboundSyncUrl: string;
   subIncyAnnounceUrl: string;
   subIncyAppAutoDetect: boolean;
   subIncyBannerBgColor: string;
@@ -294,6 +297,9 @@ export interface AllSettingView {
   subHappTunMode: string;
   subHappTunType: string;
   subHideSettings: boolean;
+  subInboundSyncDomain: string;
+  subInboundSyncEnable: boolean;
+  subInboundSyncUrl: string;
   subIncyAnnounceUrl: string;
   subIncyAppAutoDetect: boolean;
   subIncyBannerBgColor: string;

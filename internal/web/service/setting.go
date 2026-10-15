@@ -177,6 +177,9 @@ var defaultValueMap = map[string]string{
 	"subKeyFile":                  "",
 	"externalSubUserAgent":        DefaultExternalSubUserAgent,
 	"subUpdates":                  "12",
+	"subInboundSyncEnable":        "false",
+	"subInboundSyncUrl":           "",
+	"subInboundSyncDomain":        "",
 	"subEncrypt":                  "true",
 	"subURI":                      "",
 	"subJsonPath":                 "/json/",
@@ -1192,6 +1195,19 @@ func (s *SettingService) GetSubKeyFile() (string, error) {
 
 func (s *SettingService) GetSubUpdates() (string, error) {
 	return s.getString("subUpdates")
+}
+
+// GetSubInboundSyncEnable reports whether the periodic inbound mirroring is on.
+func (s *SettingService) GetSubInboundSyncEnable() (bool, error) {
+	return s.getBool("subInboundSyncEnable")
+}
+
+func (s *SettingService) GetSubInboundSyncUrl() (string, error) {
+	return s.getString("subInboundSyncUrl")
+}
+
+func (s *SettingService) GetSubInboundSyncDomain() (string, error) {
+	return s.getString("subInboundSyncDomain")
 }
 
 func (s *SettingService) GetExternalSubUserAgent() (string, error) {

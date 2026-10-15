@@ -403,6 +403,16 @@ export const sections: readonly Section[] = [
         response: '{\n  "success": true\n}',
       },
       {
+        method: 'POST',
+        path: '/panel/api/inbounds/syncSubscription',
+        summary:
+          'Rebuild the locally mirrored inbounds from the configured share-link subscription immediately, instead of waiting for the 30-minute job. Inbounds whose remark starts with [SUB-SYNC] are deleted and recreated; inbounds created by hand are left alone. Returns the counts and the reasons any link was skipped.',
+        params: [],
+        body: '',
+        response:
+          '{\n  "success": true,\n  "obj": {\n    "Added": 12,\n    "Removed": 12,\n    "Skipped": [\n      "Reality: REALITY inbound needs the private key, which the link does not carry"\n    ]\n  }\n}',
+      },
+      {
         method: 'GET',
         path: '/panel/api/inbounds/:id/fallbacks',
         summary:

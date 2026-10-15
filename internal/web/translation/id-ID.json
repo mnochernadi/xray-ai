@@ -1778,7 +1778,20 @@
       "subIncyResolveDnsDomainDesc": "URL server DoH, biasanya berakhiran /dns-query.",
       "subIncyResolveDnsIp": "IP server DoH",
       "subIncyResolveDnsIpDesc": "IP server DoH untuk bootstrap.",
-      "subIncyGroupRouting": "Perutean"
+      "subIncyGroupRouting": "Perutean",
+      "inboundSync": {
+        "menu": "Inbound Sync",
+        "hint": "Mirrored inbounds are marked with a [SUB-SYNC] prefix and are deleted and rebuilt on every refresh. Inbounds you create by hand are never touched.",
+        "enable": "Enable automatic sync",
+        "enableDesc": "Rebuild the inbounds from the subscription every 30 minutes.",
+        "url": "Subscription URL",
+        "urlDesc": "The share-link subscription to mirror (one vless/vmess/trojan/ss link per line, plain or base64).",
+        "domain": "Panel domain",
+        "domainDesc": "Domain used as the server name and certificate for TLS inbounds. Needs a certificate at /root/cert/<domain>/fullchain.pem and privkey.pem. Without it, TLS links are skipped.",
+        "run": "Sync now",
+        "runDesc": "Run the same refresh immediately, instead of waiting for the next scheduled run.",
+        "runResult": "Added {{added}}, removed {{removed}}, skipped {{skipped}}."
+      }
     },
     "xray": {
       "save": "Simpan",

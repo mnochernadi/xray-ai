@@ -316,6 +316,15 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHideSettings": {
         "type": "boolean"
       },
+      "subInboundSyncDomain": {
+        "type": "string"
+      },
+      "subInboundSyncEnable": {
+        "type": "boolean"
+      },
+      "subInboundSyncUrl": {
+        "type": "string"
+      },
       "subIncyAnnounceUrl": {
         "type": "string"
       },
@@ -669,6 +678,9 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHappTunMode",
       "subHappTunType",
       "subHideSettings",
+      "subInboundSyncDomain",
+      "subInboundSyncEnable",
+      "subInboundSyncUrl",
       "subIncyAnnounceUrl",
       "subIncyAppAutoDetect",
       "subIncyBannerBgColor",
@@ -1092,6 +1104,15 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHideSettings": {
         "type": "boolean"
       },
+      "subInboundSyncDomain": {
+        "type": "string"
+      },
+      "subInboundSyncEnable": {
+        "type": "boolean"
+      },
+      "subInboundSyncUrl": {
+        "type": "string"
+      },
       "subIncyAnnounceUrl": {
         "type": "string"
       },
@@ -1453,6 +1474,9 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHappTunMode",
       "subHappTunType",
       "subHideSettings",
+      "subInboundSyncDomain",
+      "subInboundSyncEnable",
+      "subInboundSyncUrl",
       "subIncyAnnounceUrl",
       "subIncyAppAutoDetect",
       "subIncyBannerBgColor",
