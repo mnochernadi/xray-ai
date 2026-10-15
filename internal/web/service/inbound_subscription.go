@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha1"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/link"
@@ -116,11 +119,30 @@ type planEntry struct {
 	HasTLS         bool
 }
 
+// subsyncClient builds the client entry for a mirrored inbound's settings.
+// enable/expiryTime/totalGB must be present: the panel reads them when it
+// renders the Xray config and treats a missing enable as disabled, which drops
+// the client from the running config and blanks the inbound.
+func subsyncClient(fields map[string]any) map[string]any {
+	client := map[string]any{
+		"email":      "",
+		"enable":     true,
+		"expiryTime": 0,
+		"totalGB":    0,
+		"limitIp":    0,
+		"subId":      "",
+	}
+	for k, v := range fields {
+		client[k] = v
+	}
+	return client
+}
+
 // outboundToInbound converts a parsed share link (an xray outbound) into the
 // inbound shape this panel stores. Some fields cannot survive the trip: a TLS
 // outbound carries only the client's verification settings, so the server-side
 // certificate has to come from the operator's domain (see applyDomainToStream).
-func outboundToInbound(ob link.Outbound, domain string) (*planEntry, error) {
+func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, error) {
 	protocol, _ := ob["protocol"].(string)
 	remark, _ := ob["tag"].(string)
 	if remark == "" {
@@ -141,7 +163,7 @@ func outboundToInbound(ob link.Outbound, domain string) (*planEntry, error) {
 		flow, _ := settings["flow"].(string)
 		entry.Protocol = model.VLESS
 		entry.Settings = subsyncJSON(map[string]any{
-			"clients":    []any{map[string]any{"id": id, "flow": flow, "email": clientEmail(id)}},
+			"clients":    []any{subsyncClient(map[string]any{"id": id, "flow": flow, "email": clientEmail(identity)})},
 			"decryption": "none",
 			"fallbacks":  []any{},
 		})
@@ -165,7 +187,7 @@ func outboundToInbound(ob link.Outbound, domain string) (*planEntry, error) {
 		}
 		entry.Protocol = model.VMESS
 		entry.Settings = subsyncJSON(map[string]any{
-			"clients": []any{map[string]any{"id": id, "security": security, "email": clientEmail(id)}},
+			"clients": []any{subsyncClient(map[string]any{"id": id, "security": security, "email": clientEmail(identity)})},
 		})
 	case "trojan":
 		server, _ := firstServer(settings)
@@ -176,7 +198,7 @@ func outboundToInbound(ob link.Outbound, domain string) (*planEntry, error) {
 		}
 		entry.Protocol = model.Trojan
 		entry.Settings = subsyncJSON(map[string]any{
-			"clients":   []any{map[string]any{"password": password, "email": clientEmail(password)}},
+			"clients":   []any{subsyncClient(map[string]any{"password": password, "email": clientEmail(identity)})},
 			"fallbacks": []any{},
 		})
 	case "shadowsocks":
@@ -247,11 +269,13 @@ func firstServer(settings map[string]any) (map[string]any, bool) {
 	return server, ok
 }
 
-func clientEmail(seed string) string {
-	if len(seed) > 8 {
-		seed = seed[:8]
-	}
-	return "subsync-" + seed
+// clientEmail derives a stable, unique client email from a link's identity.
+// It hashes the whole link rather than the credential alone: several links in
+// one subscription routinely share a UUID, and the panel rejects duplicate
+// emails across inbounds.
+func clientEmail(identity string) string {
+	sum := sha1.Sum([]byte(identity))
+	return "subsync-" + hex.EncodeToString(sum[:])[:10]
 }
 
 func toInt(v any) int {
@@ -278,7 +302,7 @@ func subsyncJSON(v any) string {
 
 // buildPlan turns a subscription body into the inbounds that should exist now.
 func (s *InboundSubscriptionService) buildPlan(body []byte, domain string) ([]*planEntry, []string) {
-	outbounds, _, err := link.ParseSubscriptionBody(body)
+	outbounds, identities, err := link.ParseSubscriptionBody(body)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("could not parse subscription: %v", err)}
 	}
@@ -286,8 +310,9 @@ func (s *InboundSubscriptionService) buildPlan(body []byte, domain string) ([]*p
 	var plan []*planEntry
 	var skipped []string
 	seen := map[string]bool{}
-	for _, ob := range outbounds {
-		entry, err := outboundToInbound(ob, domain)
+	for i, ob := range outbounds {
+		identity := identities[i]
+		entry, err := outboundToInbound(ob, domain, identity)
 		if err != nil {
 			skipped = append(skipped, fmt.Sprintf("%s: %v", entryRemark(ob), err))
 			continue
@@ -392,10 +417,10 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 
 	// Mirrored inbounds only exist to be dialed by the panel's own clients, and
 	// they must never be handed back out in a subscription.
-	excludeFromSub := true
+	ownerId := s.ownerUserId()
 	for _, add := range adds {
 		inbound := &model.Inbound{
-			UserId:         0,
+			UserId:         ownerId,
 			Remark:         InboundSubscriptionPrefix + add.entry.Remark,
 			Enable:         true,
 			Port:           add.port,
@@ -403,7 +428,7 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 			Settings:       add.entry.Settings,
 			StreamSettings: add.entry.StreamSettings,
 			Sniffing:       subsyncJSON(map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic", "fakedns"}}),
-			ExcludeFromSub: excludeFromSub,
+			ExcludeFromSub: true,
 		}
 		if _, _, err := inboundService.AddInbound(inbound); err != nil {
 			result.Skipped = append(result.Skipped, fmt.Sprintf("%s: %v", add.entry.Remark, err))
@@ -412,6 +437,18 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 		result.Added++
 	}
 	return result, nil
+}
+
+// ownerUserId is the panel user the mirrored inbounds belong to. The inbound
+// list is scoped by user_id, so a row owned by nobody (0) is invisible in the
+// panel even though it exists and runs. There is no request session on a cron
+// run, so attribute to the first (admin) user, matching node sync.
+func (s *InboundSubscriptionService) ownerUserId() int {
+	var user model.User
+	if err := database.GetDB().Model(model.User{}).Order("id asc").First(&user).Error; err == nil {
+		return user.Id
+	}
+	return 1
 }
 
 // RunScheduledRefresh is the cron entry point.

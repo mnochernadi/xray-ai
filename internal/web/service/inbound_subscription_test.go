@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -179,6 +180,99 @@ func TestOutboundToInboundShadowsocks(t *testing.T) {
 	if settings.Method != "aes-256-gcm" || settings.Password != "password" {
 		t.Errorf("settings = %+v", settings)
 	}
+}
+
+// Two links that share a UUID must not share a client email: the panel rejects
+// the duplicates and drops both inbounds. The email is derived from the link.
+func TestClientEmailsAreUniquePerLink(t *testing.T) {
+	const uuid = "11111111-2222-3333-4444-555555555555"
+	lines := []string{
+		"vless://" + uuid + "@one.example.com:8080?type=tcp&security=none#One",
+		"vless://" + uuid + "@two.example.com:8081?type=tcp&security=none#Two",
+	}
+	plan, skipped := (&InboundSubscriptionService{}).buildPlan([]byte(strings.Join(lines, "\n")), "")
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skips: %v", skipped)
+	}
+	if len(plan) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(plan))
+	}
+
+	emails := map[string]bool{}
+	for _, entry := range plan {
+		var settings struct {
+			Clients []struct {
+				Email string `json:"email"`
+			} `json:"clients"`
+		}
+		if err := json.Unmarshal([]byte(entry.Settings), &settings); err != nil {
+			t.Fatalf("settings invalid: %v", err)
+		}
+		if len(settings.Clients) == 0 {
+			t.Fatalf("%s has no clients", entry.Remark)
+		}
+		email := settings.Clients[0].Email
+		if email == "" {
+			t.Fatalf("%s has an empty email", entry.Remark)
+		}
+		if emails[email] {
+			t.Errorf("email %q is reused across links", email)
+		}
+		emails[email] = true
+	}
+}
+
+// A client without enable=true is treated as disabled by the config renderer,
+// which strips it from the running config and empties the inbound. Shadowsocks
+// is excluded: its credentials live on the inbound, not in a client entry.
+func TestClientEntriesAreEnabled(t *testing.T) {
+	lines := []string{
+		"vless://11111111-2222-3333-4444-555555555555@example.com:8080?type=tcp&security=none#V",
+		"trojan://secretpass@example.com:8443?type=ws&security=tls&host=c.example.com#T",
+		"vmess://" + vmessLink(t, "VM", "example.com", "443"),
+	}
+	plan, skipped := (&InboundSubscriptionService{}).buildPlan([]byte(strings.Join(lines, "\n")), "panel.example.com")
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skips: %v", skipped)
+	}
+	if len(plan) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(plan))
+	}
+	for _, entry := range plan {
+		var settings struct {
+			Clients []struct {
+				Email  string `json:"email"`
+				Enable *bool  `json:"enable"`
+			} `json:"clients"`
+		}
+		if err := json.Unmarshal([]byte(entry.Settings), &settings); err != nil {
+			t.Fatalf("%s settings invalid: %v", entry.Protocol, err)
+		}
+		if len(settings.Clients) == 0 {
+			t.Fatalf("%s has no clients", entry.Protocol)
+		}
+		client := settings.Clients[0]
+		if client.Enable == nil || !*client.Enable {
+			t.Errorf("%s client enable = %v, want true", entry.Protocol, client.Enable)
+		}
+		if client.Email == "" {
+			t.Errorf("%s client has an empty email", entry.Protocol)
+		}
+	}
+}
+
+func vmessLink(t *testing.T, remark, host, port string) string {
+	t.Helper()
+	payload := map[string]any{
+		"v": "2", "ps": remark, "add": host, "port": port,
+		"id": "11111111-2222-3333-4444-555555555555", "aid": "0", "scy": "auto",
+		"net": "tcp", "type": "none", "tls": "",
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
 func TestBuildPlanDropsDuplicateLinks(t *testing.T) {

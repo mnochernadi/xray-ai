@@ -74,6 +74,27 @@ func TestRefreshCreatesManagedInbounds(t *testing.T) {
 	}
 }
 
+// The panel scopes the inbound list by user_id, so a mirrored inbound owned by
+// nobody is invisible in the UI even though it runs. It must belong to the
+// panel's first (admin) user.
+func TestRefreshAssignsInboundsToTheAdminUser(t *testing.T) {
+	body := "vless://11111111-2222-3333-4444-555555555555@example.com:8080?type=tcp&security=none#Owned"
+	svc := setupRefreshDB(t, body)
+	if _, err := svc.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	owner := svc.ownerUserId()
+	if owner == 0 {
+		t.Fatal("ownerUserId returned 0; the inbound would be invisible in the panel")
+	}
+	for _, ib := range managedInbounds(t) {
+		if ib.UserId != owner {
+			t.Errorf("inbound %q userId = %d, want %d", ib.Remark, ib.UserId, owner)
+		}
+	}
+}
+
 func TestRefreshReplacesPreviousRun(t *testing.T) {
 	first := "vless://11111111-2222-3333-4444-555555555555@example.com:8080?type=tcp&security=none#First"
 	svc := setupRefreshDB(t, first)
