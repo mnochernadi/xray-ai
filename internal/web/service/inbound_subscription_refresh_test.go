@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,9 +69,55 @@ func TestRefreshCreatesManagedInbounds(t *testing.T) {
 			t.Fatalf("port %d was assigned twice", ib.Port)
 		}
 		ports[ib.Port] = true
-		if !ib.ExcludeFromSub {
-			t.Errorf("inbound %q should be excluded from subscription output", ib.Remark)
+		// These must reach a subscribing client app, so they are not excluded.
+		if ib.ExcludeFromSub {
+			t.Errorf("inbound %q should be served in subscription output", ib.Remark)
 		}
+	}
+}
+
+// A client app gets every mirrored inbound from one URL only if all the
+// mirrored clients share a subscription id.
+func TestRefreshClientsShareSubscriptionId(t *testing.T) {
+	body := strings.Join([]string{
+		"vless://11111111-2222-3333-4444-555555555555@one.example.com:8080?type=tcp&security=none#One",
+		"trojan://secretpass@two.example.com:8081?type=tcp&security=none#Two",
+	}, "\n")
+	svc := setupRefreshDB(t, body)
+	if _, err := svc.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	managed := managedInbounds(t)
+	if len(managed) != 2 {
+		t.Fatalf("managed inbounds = %d, want 2", len(managed))
+	}
+	subIds := map[string]bool{}
+	emails := map[string]bool{}
+	for _, ib := range managed {
+		var settings struct {
+			Clients []struct {
+				Email string `json:"email"`
+				SubId string `json:"subId"`
+			} `json:"clients"`
+		}
+		if err := json.Unmarshal([]byte(ib.Settings), &settings); err != nil {
+			t.Fatalf("settings invalid: %v", err)
+		}
+		if len(settings.Clients) == 0 {
+			t.Fatalf("%s has no clients", ib.Remark)
+		}
+		subIds[settings.Clients[0].SubId] = true
+		if settings.Clients[0].SubId != InboundSubscriptionSubId {
+			t.Errorf("%s subId = %q, want %q", ib.Remark, settings.Clients[0].SubId, InboundSubscriptionSubId)
+		}
+		if emails[settings.Clients[0].Email] {
+			t.Errorf("email %q reused across inbounds", settings.Clients[0].Email)
+		}
+		emails[settings.Clients[0].Email] = true
+	}
+	if len(subIds) != 1 {
+		t.Errorf("clients span %d subscription ids, want 1 shared", len(subIds))
 	}
 }
 

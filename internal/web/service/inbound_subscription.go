@@ -28,6 +28,12 @@ const maxInboundSubscriptionBytes int64 = 8 << 20
 // operator tells a mirrored inbound from one they created by hand.
 const InboundSubscriptionPrefix = "[SUB-SYNC] "
 
+// InboundSubscriptionSubId is the shared subscription id every mirrored client
+// carries. Fetching <subPath>/<InboundSubscriptionSubId> returns one
+// subscription containing every mirrored inbound, which is how a single client
+// app gets the whole mirrored set.
+const InboundSubscriptionSubId = "subsync-all"
+
 // inboundSubscriptionTLSFallbackPorts and its plain counterpart are the ports a
 // mirrored inbound falls back to when the port from the share link is already
 // taken on this host. The share link's port belongs to the upstream server, not
@@ -123,6 +129,11 @@ type planEntry struct {
 // enable/expiryTime/totalGB must be present: the panel reads them when it
 // renders the Xray config and treats a missing enable as disabled, which drops
 // the client from the running config and blanks the inbound.
+//
+// subId is what makes the panel serve these clients as one subscription: every
+// mirrored client shares InboundSubscriptionSubId, so the single
+// <subPath>/<subId> URL returns every inbound at once. Emails stay unique per
+// link because the panel rejects a duplicate email across inbounds.
 func subsyncClient(fields map[string]any) map[string]any {
 	client := map[string]any{
 		"email":      "",
@@ -130,7 +141,7 @@ func subsyncClient(fields map[string]any) map[string]any {
 		"expiryTime": 0,
 		"totalGB":    0,
 		"limitIp":    0,
-		"subId":      "",
+		"subId":      InboundSubscriptionSubId,
 	}
 	for k, v := range fields {
 		client[k] = v
@@ -415,8 +426,8 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 		result.Removed = deleted.Deleted
 	}
 
-	// Mirrored inbounds only exist to be dialed by the panel's own clients, and
-	// they must never be handed back out in a subscription.
+	// The mirrored inbounds are meant to be handed back out: a client app
+	// fetches <subPath>/<InboundSubscriptionSubId> and gets every one of them.
 	ownerId := s.ownerUserId()
 	for _, add := range adds {
 		inbound := &model.Inbound{
@@ -428,7 +439,6 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 			Settings:       add.entry.Settings,
 			StreamSettings: add.entry.StreamSettings,
 			Sniffing:       subsyncJSON(map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic", "fakedns"}}),
-			ExcludeFromSub: true,
 		}
 		if _, _, err := inboundService.AddInbound(inbound); err != nil {
 			result.Skipped = append(result.Skipped, fmt.Sprintf("%s: %v", add.entry.Remark, err))
