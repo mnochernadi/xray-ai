@@ -77,6 +77,7 @@ export const AllSettingSchema = z
     subInboundSyncEnable: z.boolean().optional(),
     subInboundSyncUrl: z.string().max(512).optional(),
     subInboundSyncDomain: z.string().max(255).optional(),
+    subInboundSyncCfDomain: z.string().max(255).optional(),
     subEncrypt: z.boolean().optional(),
     subURI: z.string().optional(),
     subJsonURI: z.string().optional(),

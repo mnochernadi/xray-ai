@@ -106,6 +106,7 @@ export interface AllSetting {
   subHappTunMode: string;
   subHappTunType: string;
   subHideSettings: boolean;
+  subInboundSyncCfDomain: string;
   subInboundSyncDomain: string;
   subInboundSyncEnable: boolean;
   subInboundSyncUrl: string;
@@ -297,6 +298,7 @@ export interface AllSettingView {
   subHappTunMode: string;
   subHappTunType: string;
   subHideSettings: boolean;
+  subInboundSyncCfDomain: string;
   subInboundSyncDomain: string;
   subInboundSyncEnable: boolean;
   subInboundSyncUrl: string;

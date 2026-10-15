@@ -270,6 +270,48 @@ func (s *SubService) configuredPublicHost() string {
 	return ""
 }
 
+// configuredCfDomain is the Cloudflare-proxied domain the mirrored inbounds are
+// also reachable on, or "" when the operator has not set one.
+func (s *SubService) configuredCfDomain() string {
+	d, err := s.settingService.GetSubInboundSyncCfDomain()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(d)
+}
+
+// cloudflareProxyPorts are the ports Cloudflare's proxy carries. A client can
+// only reach the origin through Cloudflare on one of these; anything else is
+// dropped at the edge, so those inbounds stay direct-only.
+var cloudflareProxyPorts = map[int]bool{
+	80: true, 8080: true, 8880: true, 2052: true, 2082: true, 2086: true, 2095: true,
+	443: true, 2053: true, 2083: true, 2087: true, 2096: true, 8443: true,
+}
+
+// cloudflareLink returns a second link for the same clients that points at the
+// Cloudflare-proxied domain, or "" when there is nothing to add. The inbound
+// itself is reused with only the share address overridden, so the two links
+// describe one server reached two ways.
+func (s *SubService) cloudflareLink(inbound *model.Inbound, clients []model.Client, cfDomain string) string {
+	if cfDomain == "" || !cloudflareProxyPorts[inbound.Port] {
+		return ""
+	}
+	network, _ := unmarshalStreamSettings(inbound.StreamSettings)["network"].(string)
+	if network != "ws" && network != "httpupgrade" && network != "xhttp" {
+		// Cloudflare's proxy carries HTTP-shaped traffic only.
+		return ""
+	}
+	clone := *inbound
+	clone.ShareAddrStrategy = "custom"
+	clone.ShareAddr = cfDomain
+	for _, client := range clients {
+		if client.Enable {
+			return s.GetLink(&clone, client.Email)
+		}
+	}
+	return ""
+}
+
 func isRoutableHost(host string) bool {
 	if host == "" {
 		return false
@@ -481,6 +523,7 @@ func (s *SubService) getSubs(subId string) ([]string, []string, int64, xray.Clie
 	}
 
 	seenEmails := make(map[string]struct{})
+	cfDomain := s.configuredCfDomain()
 	for _, inbound := range inbounds {
 		clients := s.matchingClients(inbound, subId)
 		if len(clients) == 0 {
@@ -509,6 +552,13 @@ func (s *SubService) getSubs(subId string) ([]string, []string, int64, xray.Clie
 			result = append(result, link)
 			emails = append(emails, client.Email)
 			seenEmails[client.Email] = struct{}{}
+		}
+		// The same server is also reachable through Cloudflare when the operator
+		// configured a proxied domain and the inbound sits on a port Cloudflare's
+		// proxy carries. That is a second link for the same client, not a second
+		// inbound: the inbound's Host is blank, so it answers to either address.
+		if link := s.cloudflareLink(inbound, clients, cfDomain); link != "" {
+			result = append(result, link)
 		}
 	}
 	for _, ext := range externalLinks {

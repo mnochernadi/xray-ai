@@ -1908,7 +1908,9 @@
         "domainDesc": "Domain used as the server name and certificate for TLS inbounds. Needs a certificate at /root/cert/<domain>/fullchain.pem and privkey.pem. Without it, TLS links are skipped.",
         "run": "Sync now",
         "runDesc": "Run the same refresh immediately, instead of waiting for the next scheduled run.",
-        "runResult": "Added {{added}}, removed {{removed}}, skipped {{skipped}}."
+        "runResult": "Added {{added}}, removed {{removed}}, skipped {{skipped}}.",
+        "cfDomain": "Cloudflare domain",
+        "cfDomainDesc": "A Cloudflare-proxied domain (orange cloud) the mirrored inbounds are also reachable on. Set it to add a second link per eligible inbound; it must point at this server. Cloudflare reaches the server directly on the same port, so no extra inbound is created. Links to ports Cloudflare does not proxy, and raw TCP links, are not given a Cloudflare variant."
       }
     },
     "xray": {

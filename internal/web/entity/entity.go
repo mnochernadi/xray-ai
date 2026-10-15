@@ -113,6 +113,7 @@ type AllSetting struct {
 	SubInboundSyncEnable        bool   `json:"subInboundSyncEnable" form:"subInboundSyncEnable"`
 	SubInboundSyncUrl           string `json:"subInboundSyncUrl" form:"subInboundSyncUrl"`
 	SubInboundSyncDomain        string `json:"subInboundSyncDomain" form:"subInboundSyncDomain"`
+	SubInboundSyncCfDomain      string `json:"subInboundSyncCfDomain" form:"subInboundSyncCfDomain"`
 	ExternalTrafficInformEnable bool   `json:"externalTrafficInformEnable" form:"externalTrafficInformEnable"`
 	ExternalTrafficInformURI    string `json:"externalTrafficInformURI" form:"externalTrafficInformURI"`
 	RestartXrayOnClientDisable  bool   `json:"restartXrayOnClientDisable" form:"restartXrayOnClientDisable"`

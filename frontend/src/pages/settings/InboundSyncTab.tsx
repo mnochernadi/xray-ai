@@ -84,6 +84,18 @@ export default function InboundSyncTab({ allSetting, updateSetting }: InboundSyn
 
       <SettingListItem
         paddings="small"
+        title={t('pages.settings.inboundSync.cfDomain')}
+        description={t('pages.settings.inboundSync.cfDomainDesc')}
+      >
+        <Input
+          value={allSetting.subInboundSyncCfDomain}
+          placeholder="aipanl.example.com"
+          onChange={(e) => updateSetting({ subInboundSyncCfDomain: e.target.value })}
+        />
+      </SettingListItem>
+
+      <SettingListItem
+        paddings="small"
         title={t('pages.settings.inboundSync.run')}
         description={t('pages.settings.inboundSync.runDesc')}
       >

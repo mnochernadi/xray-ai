@@ -316,6 +316,9 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHideSettings": {
         "type": "boolean"
       },
+      "subInboundSyncCfDomain": {
+        "type": "string"
+      },
       "subInboundSyncDomain": {
         "type": "string"
       },
@@ -678,6 +681,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHappTunMode",
       "subHappTunType",
       "subHideSettings",
+      "subInboundSyncCfDomain",
       "subInboundSyncDomain",
       "subInboundSyncEnable",
       "subInboundSyncUrl",
@@ -1104,6 +1108,9 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHideSettings": {
         "type": "boolean"
       },
+      "subInboundSyncCfDomain": {
+        "type": "string"
+      },
       "subInboundSyncDomain": {
         "type": "string"
       },
@@ -1474,6 +1481,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHappTunMode",
       "subHappTunType",
       "subHideSettings",
+      "subInboundSyncCfDomain",
       "subInboundSyncDomain",
       "subInboundSyncEnable",
       "subInboundSyncUrl",

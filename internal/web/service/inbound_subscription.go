@@ -267,8 +267,34 @@ func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, e
 	} else {
 		return nil, fmt.Errorf("security %q is not supported for an inbound", security)
 	}
+	clearInboundHost(stream)
 	entry.StreamSettings = subsyncJSON(stream)
 	return entry, nil
+}
+
+// clearInboundHost blanks the Host a share link asked the inbound to require.
+//
+// A share link's host belongs to the upstream provider's CDN, not to this
+// server: the link carries it so the *client* sends it, and the mirrored
+// inbound then rejected every connection whose Host differed. Blanking it makes
+// Xray accept any Host, which is what lets one inbound serve both the direct
+// address and a Cloudflare-proxied one without a second inbound or an Origin
+// Rule (Host override is Enterprise-only on Cloudflare).
+func clearInboundHost(stream map[string]any) {
+	for _, key := range []string{"wsSettings", "httpupgradeSettings", "xhttpSettings"} {
+		cfg, ok := stream[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		delete(cfg, "host")
+		if headers, ok := cfg["headers"].(map[string]any); ok {
+			for name := range headers {
+				if strings.EqualFold(name, "host") {
+					delete(headers, name)
+				}
+			}
+		}
+	}
 }
 
 // firstServer returns the first entry of a link's servers/vnext array. Trojan

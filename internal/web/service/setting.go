@@ -180,6 +180,7 @@ var defaultValueMap = map[string]string{
 	"subInboundSyncEnable":        "false",
 	"subInboundSyncUrl":           "",
 	"subInboundSyncDomain":        "",
+	"subInboundSyncCfDomain":      "",
 	"subEncrypt":                  "true",
 	"subURI":                      "",
 	"subJsonPath":                 "/json/",
@@ -1208,6 +1209,12 @@ func (s *SettingService) GetSubInboundSyncUrl() (string, error) {
 
 func (s *SettingService) GetSubInboundSyncDomain() (string, error) {
 	return s.getString("subInboundSyncDomain")
+}
+
+// GetSubInboundSyncCfDomain is the Cloudflare-proxied domain the mirrored
+// inbounds are additionally reachable on. Empty means direct-only.
+func (s *SettingService) GetSubInboundSyncCfDomain() (string, error) {
+	return s.getString("subInboundSyncCfDomain")
 }
 
 func (s *SettingService) GetExternalSubUserAgent() (string, error) {

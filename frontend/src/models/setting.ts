@@ -71,6 +71,7 @@ export class AllSetting {
   subInboundSyncEnable = false;
   subInboundSyncUrl = '';
   subInboundSyncDomain = '';
+  subInboundSyncCfDomain = '';
   subEncrypt = true;
   subURI = '';
   subJsonURI = '';

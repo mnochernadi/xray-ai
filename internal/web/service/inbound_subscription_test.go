@@ -65,8 +65,13 @@ func TestOutboundToInboundVless(t *testing.T) {
 	if stream.Network != "ws" {
 		t.Errorf("network = %q, want ws", stream.Network)
 	}
-	if stream.WsSettings.Path != "/ws" || stream.WsSettings.Host != "cdn.example.com" {
-		t.Errorf("wsSettings = %+v", stream.WsSettings)
+	// The path routes the connection; the host is deliberately left blank so the
+	// inbound accepts the direct address and a proxied one alike.
+	if stream.WsSettings.Path != "/ws" {
+		t.Errorf("ws path = %q, want /ws", stream.WsSettings.Path)
+	}
+	if stream.WsSettings.Host != "" {
+		t.Errorf("ws host = %q, want it cleared", stream.WsSettings.Host)
 	}
 	if stream.TlsSettings.ServerName != "panel.example.com" {
 		t.Errorf("serverName = %q, want the panel domain", stream.TlsSettings.ServerName)
@@ -288,6 +293,44 @@ func vmessLink(t *testing.T, remark, host, port string) string {
 		t.Fatal(err)
 	}
 	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// A share link's host belongs to the upstream provider, not to this server.
+// Keeping it makes the inbound reject every connection whose Host differs,
+// which is what blocked both the direct address and the Cloudflare one.
+func TestInboundHostIsCleared(t *testing.T) {
+	lines := []string{
+		"vless://11111111-2222-3333-4444-555555555555@example.com:8080?type=ws&security=none&host=upstream.cdn.example&path=%2Fws#W",
+	}
+	plan, skipped := (&InboundSubscriptionService{}).buildPlan([]byte(strings.Join(lines, "\n")), "")
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skips: %v", skipped)
+	}
+	if len(plan) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(plan))
+	}
+	var stream struct {
+		WsSettings struct {
+			Host    string            `json:"host"`
+			Path    string            `json:"path"`
+			Headers map[string]string `json:"headers"`
+		} `json:"wsSettings"`
+	}
+	if err := json.Unmarshal([]byte(plan[0].StreamSettings), &stream); err != nil {
+		t.Fatalf("streamSettings invalid: %v", err)
+	}
+	if stream.WsSettings.Host != "" {
+		t.Errorf("ws host = %q, want it cleared", stream.WsSettings.Host)
+	}
+	for name := range stream.WsSettings.Headers {
+		if strings.EqualFold(name, "host") {
+			t.Errorf("headers still carries %q", name)
+		}
+	}
+	// The path must survive: it is what routes the connection to this inbound.
+	if stream.WsSettings.Path != "/ws" {
+		t.Errorf("path = %q, want /ws", stream.WsSettings.Path)
+	}
 }
 
 func TestBuildPlanDropsDuplicateLinks(t *testing.T) {
