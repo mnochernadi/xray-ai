@@ -142,6 +142,29 @@ func TestRefreshAssignsInboundsToTheAdminUser(t *testing.T) {
 	}
 }
 
+// A mirrored inbound on the panel's own subscription port takes it from the
+// panel, and then Xray cannot bind its config at all: every inbound stops
+// serving, not just the one that collided.
+func TestRefreshAvoidsTheSubscriptionPort(t *testing.T) {
+	// The link asks for exactly the subscription port.
+	body := "vless://11111111-2222-3333-4444-555555555555@example.com:2096?type=tcp&security=none#Clash"
+	svc := setupRefreshDB(t, body)
+	if err := svc.settingService.setInt("subPort", 2096); err != nil {
+		t.Fatalf("set subPort: %v", err)
+	}
+	if _, err := svc.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	managed := managedInbounds(t)
+	if len(managed) != 1 {
+		t.Fatalf("managed inbounds = %d, want 1", len(managed))
+	}
+	if managed[0].Port == 2096 {
+		t.Error("mirrored inbound took the subscription port; Xray would fail to bind")
+	}
+}
+
 func TestRefreshReplacesPreviousRun(t *testing.T) {
 	first := "vless://11111111-2222-3333-4444-555555555555@example.com:8080?type=tcp&security=none#First"
 	svc := setupRefreshDB(t, first)

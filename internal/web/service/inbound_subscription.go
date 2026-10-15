@@ -383,6 +383,12 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 	if panelPort, err := s.settingService.GetPort(); err == nil {
 		usedPorts[panelPort] = true
 	}
+	// The subscription listener is the panel's own; a mirrored inbound on that
+	// port takes it from the panel, and then the whole Xray config fails to bind
+	// and every inbound stops, not just the one that collided.
+	if subPort, err := s.settingService.GetSubPort(); err == nil && subPort > 0 {
+		usedPorts[subPort] = true
+	}
 
 	// Build the replacement set before touching the panel: a subscription that
 	// parses to nothing must not leave the operator with no inbounds at all.
