@@ -173,12 +173,27 @@ func TestOutboundToInboundShadowsocks(t *testing.T) {
 	var settings struct {
 		Method   string `json:"method"`
 		Password string `json:"password"`
+		Clients  []struct {
+			Email string `json:"email"`
+			SubId string `json:"subId"`
+		} `json:"clients"`
 	}
 	if err := json.Unmarshal([]byte(plan[0].Settings), &settings); err != nil {
 		t.Fatalf("settings invalid: %v", err)
 	}
 	if settings.Method != "aes-256-gcm" || settings.Password != "password" {
 		t.Errorf("settings = %+v", settings)
+	}
+	// Without a client entry the panel emits no subscription link for the
+	// inbound, even though the credentials live on the inbound itself.
+	if len(settings.Clients) != 1 {
+		t.Fatalf("shadowsocks clients = %d, want 1", len(settings.Clients))
+	}
+	if settings.Clients[0].Email == "" {
+		t.Error("shadowsocks client has an empty email")
+	}
+	if settings.Clients[0].SubId != InboundSubscriptionSubId {
+		t.Errorf("shadowsocks subId = %q, want %q", settings.Clients[0].SubId, InboundSubscriptionSubId)
 	}
 }
 
@@ -223,20 +238,20 @@ func TestClientEmailsAreUniquePerLink(t *testing.T) {
 }
 
 // A client without enable=true is treated as disabled by the config renderer,
-// which strips it from the running config and empties the inbound. Shadowsocks
-// is excluded: its credentials live on the inbound, not in a client entry.
+// which strips it from the running config and empties the inbound.
 func TestClientEntriesAreEnabled(t *testing.T) {
 	lines := []string{
 		"vless://11111111-2222-3333-4444-555555555555@example.com:8080?type=tcp&security=none#V",
 		"trojan://secretpass@example.com:8443?type=ws&security=tls&host=c.example.com#T",
 		"vmess://" + vmessLink(t, "VM", "example.com", "443"),
+		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#SS",
 	}
 	plan, skipped := (&InboundSubscriptionService{}).buildPlan([]byte(strings.Join(lines, "\n")), "panel.example.com")
 	if len(skipped) != 0 {
 		t.Fatalf("unexpected skips: %v", skipped)
 	}
-	if len(plan) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(plan))
+	if len(plan) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(plan))
 	}
 	for _, entry := range plan {
 		var settings struct {

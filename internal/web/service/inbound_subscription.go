@@ -221,11 +221,14 @@ func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, e
 			return nil, errors.New("shadowsocks link is missing method or password")
 		}
 		entry.Protocol = model.Shadowsocks
+		// Shadowsocks keeps method/password on the inbound, but the client entry
+		// still has to exist: the link generator resolves a client per subscriber
+		// through it, and without one the inbound yields no subscription link.
 		entry.Settings = subsyncJSON(map[string]any{
 			"method":   method,
 			"password": password,
 			"network":  "tcp,udp",
-			"clients":  []any{},
+			"clients":  []any{subsyncClient(map[string]any{"email": clientEmail(identity), "password": password})},
 		})
 	default:
 		return nil, fmt.Errorf("protocol %q cannot be mirrored as an inbound", protocol)
