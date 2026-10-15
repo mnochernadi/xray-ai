@@ -304,6 +304,20 @@ func (s *SubService) cloudflareLink(inbound *model.Inbound, clients []model.Clie
 	clone := *inbound
 	clone.ShareAddrStrategy = "custom"
 	clone.ShareAddr = cfDomain
+	// Cloudflare presents its own certificate for the proxied domain, and it
+	// routes by the SNI the client sends. Leaving the direct domain's SNI here
+	// would make the client ask Cloudflare for the wrong host.
+	if stream := unmarshalStreamSettings(clone.StreamSettings); stream["security"] == "tls" {
+		tls, _ := stream["tlsSettings"].(map[string]any)
+		if tls == nil {
+			tls = map[string]any{}
+			stream["tlsSettings"] = tls
+		}
+		tls["serverName"] = cfDomain
+		if encoded, err := json.Marshal(stream); err == nil {
+			clone.StreamSettings = string(encoded)
+		}
+	}
 	for _, client := range clients {
 		if client.Enable {
 			return s.GetLink(&clone, client.Email)
