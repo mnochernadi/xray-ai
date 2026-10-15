@@ -28,6 +28,10 @@ const maxInboundSubscriptionBytes int64 = 8 << 20
 // operator tells a mirrored inbound from one they created by hand.
 const InboundSubscriptionPrefix = "[SUB-SYNC] "
 
+// InboundSubscriptionDisplayName is the name every mirrored config is handed
+// out under, so all of them look alike in a client app.
+const InboundSubscriptionDisplayName = "op_iran"
+
 // InboundSubscriptionSubId is the shared subscription id every mirrored client
 // carries. Fetching <subPath>/<InboundSubscriptionSubId> returns one
 // subscription containing every mirrored inbound, which is how a single client
