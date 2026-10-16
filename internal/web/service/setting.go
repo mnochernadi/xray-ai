@@ -181,6 +181,7 @@ var defaultValueMap = map[string]string{
 	"subInboundSyncUrl":           "",
 	"subInboundSyncDomain":        "",
 	"subInboundSyncCfDomain":      "",
+	"marzbanSubSecret":            "",
 	"subEncrypt":                  "true",
 	"subURI":                      "",
 	"subJsonPath":                 "/json/",
@@ -1215,6 +1216,13 @@ func (s *SettingService) GetSubInboundSyncDomain() (string, error) {
 // inbounds are additionally reachable on. Empty means direct-only.
 func (s *SettingService) GetSubInboundSyncCfDomain() (string, error) {
 	return s.getString("subInboundSyncCfDomain")
+}
+
+// GetMarzbanSubSecret is the secret a Marzban panel signed its subscription
+// tokens with. When set, this panel accepts those tokens as subscription ids,
+// so users migrated from Marzban keep the URL they already hold.
+func (s *SettingService) GetMarzbanSubSecret() (string, error) {
+	return s.getString("marzbanSubSecret")
 }
 
 func (s *SettingService) GetExternalSubUserAgent() (string, error) {

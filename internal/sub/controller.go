@@ -489,6 +489,12 @@ func (a *SUBController) subs(c *gin.Context) {
 	scheme, host, hostWithPort, _ := a.subService.ResolveRequest(c)
 	subReq := a.subService.ForRequest(host)
 	subReq.subscriptionBody = true
+	// A user carried over from a Marzban panel keeps the URL they already hold,
+	// which carries a signed token rather than a plain subId. Resolving it here
+	// means their client never has to be reconfigured.
+	if username, ok := subReq.MarzbanSubId(subId); ok {
+		subId = username
+	}
 	subs, _, _, traffic, err := subReq.getSubs(subId)
 	if err != nil || subs == nil {
 		writeSubError(c, err)
