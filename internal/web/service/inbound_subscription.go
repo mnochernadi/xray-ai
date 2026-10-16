@@ -47,6 +47,12 @@ var (
 	inboundSubscriptionPlainFallbackPorts = []int{80, 8080, 8880, 2052, 2082, 2086, 2095}
 )
 
+// subscriptionBindPortLow is where mirrored inbounds start looking for a port
+// to bind. They are not meant to be dialled — the endpoints they hand out live
+// on the host entries — so they stay out of the way of the well-known ports the
+// operator's own inbounds and the panel use.
+const subscriptionBindPortLow = 20000
+
 // InboundSubscriptionService mirrors a remote share-link subscription into
 // local inbounds so the panel's own clients can use those servers.
 type InboundSubscriptionService struct {
@@ -64,6 +70,7 @@ func NewInboundSubscriptionService() *InboundSubscriptionService {
 type InboundSubscriptionResult struct {
 	Added   int
 	Removed int
+	Hosts   int
 	Skipped []string
 }
 
@@ -120,24 +127,52 @@ func (s *InboundSubscriptionService) fetchSubscription(ctx context.Context) ([]b
 }
 
 // planEntry is one inbound to create, resolved from a share link.
+//
+// An inline subscription routinely lists dozens of links that differ only in
+// where they point — the same server credential reached through different
+// relays, ports and front domains, several of them sharing one port. Those
+// cannot become separate inbounds: only one process can hold a port. They
+// become one inbound carrying the shared credential and transport, plus a host
+// entry per endpoint describing where that endpoint actually is (see
+// hostEntry). The endpoint's address and port live on the host, so the port
+// the inbound itself binds is an arbitrary free one nobody is expected to
+// dial.
 type planEntry struct {
 	Remark         string
 	Protocol       model.Protocol
-	Port           int
 	Settings       string
 	StreamSettings string
 	HasTLS         bool
 
-	// Address is the host the share link told clients to connect to. The
-	// mirrored inbound advertises this back rather than its own address: the
-	// upstream provider's servers do the proxying, so a link pointing here
-	// instead would hand out configs that cannot connect.
+	// Address is the host the share link told clients to connect to, used when
+	// an endpoint carries none of its own.
 	Address string
 
 	// SNI is the server name the link asked for. It is kept on the inbound's
 	// TLS settings so the link built from them carries it back; the certificate
 	// the inbound serves with is still this host's own.
 	SNI string
+
+	// Hosts is one entry per upstream endpoint in this group.
+	Hosts []hostEntry
+}
+
+// hostEntry is one endpoint of a mirrored inbound: where a config actually
+// sends its traffic, and what the client must present to reach it. It is the
+// equivalent of a Marzban host, and is what makes it possible to hand out
+// several endpoints — on ports this host does not even listen on — from a
+// single inbound.
+type hostEntry struct {
+	Remark        string
+	Address       string
+	Port          int
+	Security      string // "tls", "none", or "" to inherit the inbound's
+	SNI           string
+	HostHeader    string
+	Path          string
+	Fingerprint   string
+	Alpn          []string
+	AllowInsecure bool
 }
 
 // subsyncClient builds the client entry for a mirrored inbound's settings.
@@ -254,8 +289,8 @@ func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, e
 		return nil, fmt.Errorf("protocol %q cannot be mirrored as an inbound", protocol)
 	}
 
-	entry.Port = toInt(port)
-	if entry.Port <= 0 || entry.Port > 65535 {
+	entryPort := toInt(port)
+	if entryPort <= 0 || entryPort > 65535 {
 		return nil, errors.New("link has an unusable port")
 	}
 
@@ -295,8 +330,74 @@ func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, e
 	} else {
 		return nil, fmt.Errorf("security %q is not supported for an inbound", security)
 	}
+	// The details a client needs belong to the endpoint, not to the inbound, so
+	// they are read off the link before the inbound's stream is neutralised.
+	hostHeader := linkHostHeader(stream)
+	hostPath := linkPath(stream)
+	hostFP := linkFingerprint(stream)
+	hostAlpn := linkAlpn(stream)
+	hostInsecure := linkAllowInsecure(stream)
+
+	// The inbound itself is only a template: every endpoint that carries
+	// traffic is described by a host entry below, so the inbound's own stream
+	// must not demand a Host header of its own — it would reject the
+	// connections its hosts describe.
+	clearInboundHost(stream)
 	entry.StreamSettings = subsyncJSON(stream)
+
+	// One host per endpoint. Its own transport settings are what the client
+	// actually uses, which is why the path, Host header, SNI and fingerprint all
+	// have to be repeated here rather than only on the inbound.
+	entry.Hosts = []hostEntry{{
+		Remark:        entry.Remark,
+		Address:       entry.Address,
+		Port:          entryPort,
+		Security:      hostSecurity(security),
+		SNI:           entry.SNI,
+		HostHeader:    hostHeader,
+		Path:          hostPath,
+		Fingerprint:   hostFP,
+		Alpn:          hostAlpn,
+		AllowInsecure: hostInsecure,
+	}}
 	return entry, nil
+}
+
+// hostSecurity is the host's security override. "same" leaves whatever the
+// inbound carries, which is right whenever the endpoint did not contradict it.
+func hostSecurity(security string) string {
+	switch security {
+	case "tls", "none":
+		return security
+	default:
+		return "same"
+	}
+}
+
+// clearInboundHost blanks the Host a share link asked the inbound to require.
+//
+// A share link's host belongs to the upstream provider's CDN, not to this
+// server: the link carries it so the *client* sends it, and the mirrored
+// inbound would then reject every connection whose Host differed. Blanking it
+// makes Xray accept any Host, which is what lets one inbound back several hosts
+// on a CDN without a second inbound or an Origin Rule (Host override is
+// Enterprise-only on Cloudflare). The host's own Host header is kept on the
+// host entry instead, so the links still carry it.
+func clearInboundHost(stream map[string]any) {
+	for _, key := range []string{"wsSettings", "httpupgradeSettings", "xhttpSettings"} {
+		cfg, ok := stream[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		delete(cfg, "host")
+		if headers, ok := cfg["headers"].(map[string]any); ok {
+			for name := range headers {
+				if strings.EqualFold(name, "host") {
+					delete(headers, name)
+				}
+			}
+		}
+	}
 }
 
 // stripWord drops every whole-word occurrence of word from s, so the words
@@ -315,11 +416,18 @@ func stripWord(s, word string) string {
 
 // linkAddress returns the host a share link told its clients to connect to.
 //
-// VLESS and VMess keep it flat on the settings; Trojan and Shadowsocks nest it
-// inside their first server entry.
+// VLESS keeps it flat on the settings, VMess nests it in a single vnext entry,
+// and Trojan and Shadowsocks nest it inside their first server entry.
 func linkAddress(settings map[string]any) string {
 	if address, ok := settings["address"].(string); ok && address != "" {
 		return address
+	}
+	if vnext, ok := settings["vnext"].([]any); ok && len(vnext) > 0 {
+		if server, ok := vnext[0].(map[string]any); ok {
+			if address, ok := server["address"].(string); ok && address != "" {
+				return address
+			}
+		}
 	}
 	if server, ok := firstServer(settings); ok {
 		if address, ok := server["address"].(string); ok {
@@ -337,6 +445,90 @@ func linkSNI(stream map[string]any) string {
 	}
 	serverName, _ := tlsSettings["serverName"].(string)
 	return serverName
+}
+
+// linkHostHeader returns the Host header a share link carried. Xray keeps it on
+// the transport's own object for WebSocket and XHTTP alike, and older links put
+// it in the transport's headers map instead.
+func linkHostHeader(stream map[string]any) string {
+	for _, key := range []string{"wsSettings", "httpupgradeSettings", "xhttpSettings", "grpcSettings"} {
+		cfg, ok := stream[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		if host, ok := cfg["host"].(string); ok && host != "" {
+			return host
+		}
+		if headers, ok := cfg["headers"].(map[string]any); ok {
+			for name, value := range headers {
+				if strings.EqualFold(name, "host") {
+					if host, ok := value.(string); ok {
+						return host
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// linkPath returns the transport path a share link carried.
+func linkPath(stream map[string]any) string {
+	for _, key := range []string{"wsSettings", "httpupgradeSettings", "xhttpSettings", "grpcSettings", "splithttpSettings"} {
+		cfg, ok := stream[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		if path, ok := cfg["path"].(string); ok && path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+// linkFingerprint returns the TLS fingerprint a share link asked its clients to
+// present. xray keeps it under a few different names depending on version.
+func linkFingerprint(stream map[string]any) string {
+	tlsSettings, ok := stream["tlsSettings"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	for _, key := range []string{"fingerprint", "fp"} {
+		if fp, ok := tlsSettings[key].(string); ok && fp != "" {
+			return fp
+		}
+	}
+	return ""
+}
+
+// linkAlpn returns the ALPN list a share link carried.
+func linkAlpn(stream map[string]any) []string {
+	tlsSettings, ok := stream["tlsSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := tlsSettings["alpn"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// linkAllowInsecure reports whether the link told clients to skip certificate
+// verification — the upstream usually does exactly that behind a CDN.
+func linkAllowInsecure(stream map[string]any) bool {
+	tlsSettings, ok := stream["tlsSettings"].(map[string]any)
+	if !ok {
+		return false
+	}
+	insecure, _ := tlsSettings["allowInsecure"].(bool)
+	return insecure
 }
 
 // firstServer returns the first entry of a link's servers/vnext array. Trojan
@@ -391,7 +583,7 @@ func (s *InboundSubscriptionService) buildPlan(body []byte, domain string) ([]*p
 
 	var plan []*planEntry
 	var skipped []string
-	seen := map[string]bool{}
+	byKey := map[string]*planEntry{}
 	for i, ob := range outbounds {
 		identity := identities[i]
 		entry, err := outboundToInbound(ob, domain, identity)
@@ -399,14 +591,41 @@ func (s *InboundSubscriptionService) buildPlan(body []byte, domain string) ([]*p
 			skipped = append(skipped, fmt.Sprintf("%s: %v", entryRemark(ob), err))
 			continue
 		}
-		key := fmt.Sprintf("%s|%d|%s", entry.Protocol, entry.Port, entry.Remark)
-		if seen[key] {
+		// Links that describe the same server reached the same way collapse
+		// into one inbound: they differ only in the endpoint, and each endpoint
+		// becomes a host entry.
+		key := planKey(entry)
+		if existing, ok := byKey[key]; ok {
+			existing.Hosts = append(existing.Hosts, entry.Hosts...)
 			continue
 		}
-		seen[key] = true
+		byKey[key] = entry
 		plan = append(plan, entry)
 	}
 	return plan, skipped
+}
+
+// planKey identifies the inbound a link belongs to: the same protocol reaching
+// the upstream the same way with the same credential. Anything else — a
+// different path, Host header, SNI or port — is a property of the endpoint and
+// belongs on the host entry, not here.
+func planKey(entry *planEntry) string {
+	var settings map[string]any
+	_ = json.Unmarshal([]byte(entry.Settings), &settings)
+	var stream map[string]any
+	_ = json.Unmarshal([]byte(entry.StreamSettings), &stream)
+
+	var credential string
+	if clients, ok := settings["clients"].([]any); ok && len(clients) > 0 {
+		if client, ok := clients[0].(map[string]any); ok {
+			credential = fmt.Sprintf("%v/%v/%v/%v",
+				client["id"], client["password"], client["flow"], client["security"])
+		}
+	}
+	method, _ := settings["method"].(string)
+	network, _ := stream["network"].(string)
+	security, _ := stream["security"].(string)
+	return strings.Join([]string{string(entry.Protocol), method, network, security, credential}, "|")
 }
 
 func entryRemark(ob link.Outbound) string {
@@ -466,23 +685,21 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 	}
 	var adds []plannedAdd
 	for _, entry := range plan {
-		port := entry.Port
-		if usedPorts[port] {
-			port = 0
-			pool := inboundSubscriptionPlainFallbackPorts
-			if entry.HasTLS {
-				pool = inboundSubscriptionTLSFallbackPorts
+		// The upstream port cannot be used here: it is the upstream's, often
+		// well known and already held by something on this host, and several
+		// endpoints of one inbound routinely share it. The inbound binds an
+		// unused port purely so the core has something to listen on — clients
+		// are sent to the host entries' addresses and ports, never to this one.
+		port := 0
+		for candidate := subscriptionBindPortLow; candidate <= 65535; candidate++ {
+			if !usedPorts[candidate] {
+				port = candidate
+				break
 			}
-			for _, candidate := range pool {
-				if !usedPorts[candidate] {
-					port = candidate
-					break
-				}
-			}
-			if port == 0 {
-				result.Skipped = append(result.Skipped, fmt.Sprintf("%s: port %d is taken and no fallback port is free", entry.Remark, entry.Port))
-				continue
-			}
+		}
+		if port == 0 {
+			result.Skipped = append(result.Skipped, fmt.Sprintf("%s: no free port to bind", entry.Remark))
+			continue
 		}
 		usedPorts[port] = true
 		adds = append(adds, plannedAdd{entry: entry, port: port})
@@ -496,6 +713,13 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 	}
 
 	if len(managedIds) > 0 {
+		// Hosts are not removed with their inbound, and a stale host keeps
+		// being handed out — it points at an endpoint nothing describes any
+		// more.
+		if err := database.GetDB().Where("inbound_id IN ?", managedIds).
+			Delete(&model.Host{}).Error; err != nil {
+			return result, fmt.Errorf("could not remove old mirrored hosts: %w", err)
+		}
 		deleted, _, delErr := inboundService.DelInbounds(managedIds)
 		if delErr != nil {
 			return result, fmt.Errorf("could not remove old mirrored inbounds: %w", delErr)
@@ -530,8 +754,40 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 			continue
 		}
 		result.Added++
+		result.Hosts += s.createHosts(inbound.Id, add.entry.Hosts)
 	}
 	return result, nil
+}
+
+// createHosts writes one host row per endpoint of a mirrored inbound and
+// returns how many were written. A failure is reported through the skipped list
+// rather than aborting: an inbound with some of its endpoints still beats no
+// inbound at all.
+func (s *InboundSubscriptionService) createHosts(inboundId int, entries []hostEntry) int {
+	written := 0
+	for i, entry := range entries {
+		host := &model.Host{
+			GroupId:       fmt.Sprintf("subsync-%d", inboundId),
+			InboundId:     inboundId,
+			SortOrder:     i,
+			Remark:        entry.Remark,
+			Address:       entry.Address,
+			Port:          entry.Port,
+			Security:      entry.Security,
+			Sni:           entry.SNI,
+			HostHeader:    entry.HostHeader,
+			Path:          entry.Path,
+			Fingerprint:   entry.Fingerprint,
+			Alpn:          entry.Alpn,
+			AllowInsecure: entry.AllowInsecure,
+		}
+		if err := database.GetDB().Create(host).Error; err != nil {
+			logger.Warningf("inbound subscription sync: could not create host %q: %v", entry.Remark, err)
+			continue
+		}
+		written++
+	}
+	return written
 }
 
 // ownerUserId is the panel user the mirrored inbounds belong to. The inbound
@@ -556,5 +812,6 @@ func (s *InboundSubscriptionService) RunScheduledRefresh() {
 		logger.Warning("inbound subscription sync failed:", err)
 		return
 	}
-	logger.Infof("inbound subscription sync: added %d, removed %d, skipped %d", result.Added, result.Removed, len(result.Skipped))
+	logger.Infof("inbound subscription sync: added %d, removed %d, hosts %d, skipped %d",
+		result.Added, result.Removed, result.Hosts, len(result.Skipped))
 }

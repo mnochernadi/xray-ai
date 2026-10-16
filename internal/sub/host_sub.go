@@ -278,16 +278,30 @@ func applyEndpointHostPath(e ShareEndpoint, params map[string]string) {
 	if e.ep == nil {
 		return
 	}
-	if h, ok := e.ep["hostHeader"].(string); ok && h != "" {
-		if _, exists := params["host"]; exists {
-			params["host"] = h
-		}
+	if h, ok := e.ep["hostHeader"].(string); ok && h != "" && endpointCarriesHost(params["type"], params) {
+		params["host"] = h
 	}
 	if p, ok := e.ep["path"].(string); ok && p != "" {
 		if _, exists := params["path"]; exists {
 			params["path"] = p
 		}
 	}
+}
+
+// hostCarryingTransports lists the transports whose share links take a Host
+// header. An endpoint that names one has to be able to add it: the inbound it
+// belongs to blanks its own Host so a single inbound can back several front
+// domains, which would otherwise leave every link without the header its
+// endpoint needs.
+var hostCarryingTransports = map[string]bool{
+	"ws": true, "httpupgrade": true, "xhttp": true, "grpc": true, "splithttp": true,
+}
+
+func endpointCarriesHost(transport string, params map[string]string) bool {
+	if _, exists := params["host"]; exists {
+		return true
+	}
+	return hostCarryingTransports[transport]
 }
 
 // isHostEndpoint reports whether ep was synthesized from a Host (vs a legacy
@@ -367,10 +381,13 @@ func applyEndpointHostPathObj(e ShareEndpoint, obj map[string]any) {
 	if e.ep == nil {
 		return
 	}
-	if h, ok := e.ep["hostHeader"].(string); ok && h != "" {
-		if _, exists := obj["host"]; exists {
-			obj["host"] = h
-		}
+	transport, _ := obj["net"].(string)
+	params := map[string]string{}
+	if _, exists := obj["host"]; exists {
+		params["host"] = ""
+	}
+	if h, ok := e.ep["hostHeader"].(string); ok && h != "" && endpointCarriesHost(transport, params) {
+		obj["host"] = h
 	}
 	if p, ok := e.ep["path"].(string); ok && p != "" {
 		if _, exists := obj["path"]; exists {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 )
 
@@ -674,6 +675,12 @@ func (s *SubService) genTemplatedRemark(inbound *model.Inbound, client model.Cli
 // first link and the name-only part thereafter; displays render the name-only
 // part). With no template it falls back to inbound, host and email joined by "-".
 func (s *SubService) genHostRemark(inbound *model.Inbound, client model.Client, hostRemark string, transport string) string {
+	// A mirrored host already carries the upstream's own name. Composing it
+	// with the inbound's remark would hand the user a name neither side uses,
+	// and the [SUB-SYNC] marker is this panel's bookkeeping, not a label.
+	if strings.HasPrefix(inbound.Remark, service.InboundSubscriptionPrefix) {
+		return hostRemark
+	}
 	if s.remarkTemplate != "" {
 		return s.genTemplatedRemark(inbound, client, hostRemark, transport)
 	}
