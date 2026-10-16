@@ -490,10 +490,13 @@ func (a *SUBController) subs(c *gin.Context) {
 	subReq := a.subService.ForRequest(host)
 	subReq.subscriptionBody = true
 	// A user carried over from a Marzban panel keeps the URL they already hold,
-	// which carries a signed token rather than a plain subId. Resolving it here
-	// means their client never has to be reconfigured.
-	if username, ok := subReq.MarzbanSubId(subId); ok {
-		subId = username
+	// which carries a signed token rather than a plain subId. The token is
+	// verified to prove the request is one of that panel's subscribers, and the
+	// subscription it is answered with is the mirrored set: the inbounds here
+	// describe upstream servers, so every subscriber is handed the same
+	// configs, exactly as the upstream subscription serves them.
+	if _, ok := subReq.MarzbanSubId(subId); ok {
+		subId = service.InboundSubscriptionSubId
 	}
 	subs, _, _, traffic, err := subReq.getSubs(subId)
 	if err != nil || subs == nil {

@@ -2476,9 +2476,14 @@ func cloneStringMap(source map[string]string) map[string]string {
 // name-only part on displays); with no template it falls back to the inbound
 // remark, extra and email joined by "-".
 func (s *SubService) genRemark(inbound *model.Inbound, email string, extra string, transport string) string {
-	// Every mirrored inbound is handed out under one fixed name, so all the
-	// configs a client imports from the subscription share it.
+	// A mirrored inbound is handed out under the name carried over from the
+	// upstream subscription, so the configs a client imports look exactly like
+	// the ones it had before. The [SUB-SYNC] marker is this panel's own
+	// bookkeeping and is not part of that name.
 	if strings.HasPrefix(inbound.Remark, service.InboundSubscriptionPrefix) {
+		if name := strings.TrimSpace(strings.TrimPrefix(inbound.Remark, service.InboundSubscriptionPrefix)); name != "" {
+			return name
+		}
 		return service.InboundSubscriptionDisplayName
 	}
 	if s.remarkTemplate != "" {

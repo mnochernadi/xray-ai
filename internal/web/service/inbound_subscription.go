@@ -127,6 +127,17 @@ type planEntry struct {
 	Settings       string
 	StreamSettings string
 	HasTLS         bool
+
+	// Address is the host the share link told clients to connect to. The
+	// mirrored inbound advertises this back rather than its own address: the
+	// upstream provider's servers do the proxying, so a link pointing here
+	// instead would hand out configs that cannot connect.
+	Address string
+
+	// SNI is the server name the link asked for. It is kept on the inbound's
+	// TLS settings so the link built from them carries it back; the certificate
+	// the inbound serves with is still this host's own.
+	SNI string
 }
 
 // subsyncClient builds the client entry for a mirrored inbound's settings.
@@ -160,6 +171,9 @@ func subsyncClient(fields map[string]any) map[string]any {
 func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, error) {
 	protocol, _ := ob["protocol"].(string)
 	remark, _ := ob["tag"].(string)
+	// The upstream tags its own entries; the operator's brand must not appear
+	// in the names his users see in their client apps.
+	remark = stripWord(remark, "papa")
 	if remark == "" {
 		remark = "subscription"
 	}
@@ -167,6 +181,8 @@ func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, e
 	stream, _ := ob["streamSettings"].(map[string]any)
 
 	entry := &planEntry{Remark: remark}
+	entry.Address = linkAddress(settings)
+	entry.SNI = linkSNI(stream)
 	var port any
 	switch protocol {
 	case "vless":
@@ -256,8 +272,16 @@ func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, e
 		if domain == "" {
 			return nil, errors.New("TLS inbound needs a domain (set one in the subscription sync settings)")
 		}
+		// The name advertised back in the link is the one the upstream link
+		// asked for; the certificate is still this host's own, because the
+		// inbound is only here to be described — clients connect to the
+		// upstream address, not to this server.
+		serverName := entry.SNI
+		if serverName == "" {
+			serverName = domain
+		}
 		stream["tlsSettings"] = map[string]any{
-			"serverName": domain,
+			"serverName": serverName,
 			"certificates": []any{map[string]any{
 				"certificateFile": "/root/cert/" + domain + "/fullchain.pem",
 				"keyFile":         "/root/cert/" + domain + "/privkey.pem",
@@ -271,34 +295,48 @@ func outboundToInbound(ob link.Outbound, domain, identity string) (*planEntry, e
 	} else {
 		return nil, fmt.Errorf("security %q is not supported for an inbound", security)
 	}
-	clearInboundHost(stream)
 	entry.StreamSettings = subsyncJSON(stream)
 	return entry, nil
 }
 
-// clearInboundHost blanks the Host a share link asked the inbound to require.
-//
-// A share link's host belongs to the upstream provider's CDN, not to this
-// server: the link carries it so the *client* sends it, and the mirrored
-// inbound then rejected every connection whose Host differed. Blanking it makes
-// Xray accept any Host, which is what lets one inbound serve both the direct
-// address and a Cloudflare-proxied one without a second inbound or an Origin
-// Rule (Host override is Enterprise-only on Cloudflare).
-func clearInboundHost(stream map[string]any) {
-	for _, key := range []string{"wsSettings", "httpupgradeSettings", "xhttpSettings"} {
-		cfg, ok := stream[key].(map[string]any)
-		if !ok {
+// stripWord drops every whole-word occurrence of word from s, so the words
+// around it close up without leaving a double space behind.
+func stripWord(s, word string) string {
+	fields := strings.Fields(s)
+	kept := fields[:0]
+	for _, field := range fields {
+		if strings.EqualFold(field, word) {
 			continue
 		}
-		delete(cfg, "host")
-		if headers, ok := cfg["headers"].(map[string]any); ok {
-			for name := range headers {
-				if strings.EqualFold(name, "host") {
-					delete(headers, name)
-				}
-			}
+		kept = append(kept, field)
+	}
+	return strings.Join(kept, " ")
+}
+
+// linkAddress returns the host a share link told its clients to connect to.
+//
+// VLESS and VMess keep it flat on the settings; Trojan and Shadowsocks nest it
+// inside their first server entry.
+func linkAddress(settings map[string]any) string {
+	if address, ok := settings["address"].(string); ok && address != "" {
+		return address
+	}
+	if server, ok := firstServer(settings); ok {
+		if address, ok := server["address"].(string); ok {
+			return address
 		}
 	}
+	return ""
+}
+
+// linkSNI returns the server name a share link carried for TLS.
+func linkSNI(stream map[string]any) string {
+	tlsSettings, ok := stream["tlsSettings"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	serverName, _ := tlsSettings["serverName"].(string)
+	return serverName
 }
 
 // firstServer returns the first entry of a link's servers/vnext array. Trojan
@@ -478,6 +516,14 @@ func (s *InboundSubscriptionService) Refresh(ctx context.Context) (*InboundSubsc
 			Settings:       add.entry.Settings,
 			StreamSettings: add.entry.StreamSettings,
 			Sniffing:       subsyncJSON(map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic", "fakedns"}}),
+		}
+		// Hand the upstream's own address back out. Without this the panel
+		// falls back to its configured public host, and every link advertises
+		// this server — which serves no one, because the proxying happens on
+		// the upstream provider's machines.
+		if add.entry.Address != "" {
+			inbound.ShareAddrStrategy = "custom"
+			inbound.ShareAddr = add.entry.Address
 		}
 		if _, _, err := inboundService.AddInbound(inbound); err != nil {
 			result.Skipped = append(result.Skipped, fmt.Sprintf("%s: %v", add.entry.Remark, err))
